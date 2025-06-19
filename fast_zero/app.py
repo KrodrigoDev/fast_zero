@@ -1,38 +1,106 @@
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from http import HTTPStatus
 
-from fastapi import FastAPI
+import pandas as pd
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 
-app = FastAPI()
+from fast_zero.globais import PathFiles
+from fast_zero.schema import ListUsers, UserPrivate, UserPublic
 
-
-@app.get('/')
-def read_root():
-    return {'message': 'hello world!'}
-
-
-@app.get('/teste/')
-def read_teste():
-    return {'message': 'será que foi'}
+# testar a questão de segurança ao excluir e adicionar depois
 
 
-@dataclass
-class Pessoa:
-    nome: str
-    sobrenome: str
-    nascimento: datetime
-    idade: int = None
-    nome_completo: str = None
+def read_data() -> pd.DataFrame:
+    if PathFiles.DATABASE.value.exists():
+        return pd.read_csv(PathFiles.DATABASE.value, sep=';')
 
-    def __init__(self, nome: str, sobrenome: str, nascimento: datetime):
-        self.nome = nome
-        self.sobrenome = sobrenome
-        self.nascimento = nascimento
-        self.idade = datetime.now().year - nascimento.year
-        self.nome_completo = f'{nome} {sobrenome}'
+    PathFiles.DATABASE.value.touch()
+
+    df = pd.DataFrame(
+        columns=['id', 'first_name', 'last_name', 'birthday', 'password']
+    )
+    df.to_csv(PathFiles.DATABASE.value, index=False, sep=';')
+
+    return df
 
 
-@app.get('/people/')
-def read_people():
-    p = Pessoa('Kauã', 'Rodrigo', datetime(2003, 7, 25))
-    return asdict(p)
+app = FastAPI(title='MY API BULLET!')
+
+
+@app.get('/', status_code=HTTPStatus.OK, response_class=HTMLResponse)
+def main():
+    return '<h1>Hello World, User</h1>'
+
+
+@app.post(
+    '/created_user', status_code=HTTPStatus.CREATED, response_model=UserPublic
+)
+def created_people(user: UserPrivate):
+    df = read_data()
+
+    df_size = df.shape[0]
+    user = user.model_dump()
+    user['id'] = df_size
+
+    df.loc[df_size] = user
+
+    df.to_csv(PathFiles.DATABASE.value, index=False, sep=';')
+
+    return df.loc[df_size]
+
+
+@app.get(
+    '/user/{user_id}', response_model=UserPublic, status_code=HTTPStatus.OK
+)
+def read_people(user_id: int):
+    df = read_data()
+
+    return df.loc[user_id]
+
+
+@app.get('/list_users', status_code=HTTPStatus.OK, response_model=ListUsers)
+def read_peoples():
+    df = read_data()
+
+    return {'users': df.to_dict(orient='records')}
+
+
+@app.put(
+    '/update_users/{user_id}',
+    status_code=HTTPStatus.OK,
+    response_model=UserPublic,
+)
+def update_user(user_id: int, user: UserPrivate):
+    df = read_data()
+
+    if user_id not in df['id'].unique():
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND, detail='Deu ruim! Não achei...'
+        )
+
+    user = user.model_dump()
+    user['id'] = df.loc[user_id]['id']
+    df.loc[user_id] = user
+
+    df.to_csv(PathFiles.DATABASE.value, sep=';', index=False)
+    return df.loc[user_id]
+
+
+@app.delete(
+    '/delete_user/{user_id}',
+    status_code=HTTPStatus.OK,
+    response_model=UserPublic,
+)
+def delete_user(user_id: int):
+    df = read_data()
+
+    if user_id not in df['id'].unique():
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND, detail='Deu ruim! Não achei...'
+        )
+
+    new_df = df.drop(index=user_id).copy()
+
+    new_df.to_csv(PathFiles.DATABASE.value, sep=';', index=False)
+
+    return df.loc[user_id]
