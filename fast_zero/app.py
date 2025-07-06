@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from fast_zero.globais import PathFiles
-from fast_zero.schema import ListUsers, UserPrivate, UserPublic
+from fast_zero.schema import Books, ListUsers, UserPrivate, UserPublic
 
 # testar a questão de segurança ao excluir e adicionar depois
 
@@ -104,3 +104,17 @@ def delete_user(user_id: int):
     new_df.to_csv(PathFiles.DATABASE.value, sep=';', index=False)
 
     return df.loc[user_id]
+
+
+@app.get('/all_books/{year_of_lauch}', response_model=Books)
+def all_books(year_of_lauch: int):
+    df_books = pd.DataFrame(
+        data={
+            'name': ['Intrdução SQL', 'Ultra-Apredizado', 'Clean Code'],
+            'isbn': ['31234', '3213', '53432'],
+            'author': ['Franz Kafka', 'Zahar', 'Nield'],
+            'year_of_lauch': [2003, 2003, 2015],
+        }
+    )
+    df_books = df_books.query(f'year_of_lauch == {year_of_lauch}')
+    return {'books': df_books.to_dict(orient='records')}

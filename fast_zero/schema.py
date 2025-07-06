@@ -4,6 +4,17 @@ from typing import List
 from pydantic import BaseModel
 
 
+class Book(BaseModel):
+    name: str
+    isbn: str
+    author: str
+    year_of_lauch: int
+
+
+class Books(BaseModel):
+    books: List[Book]
+
+
 class UserSchema(BaseModel):
     first_name: str
     last_name: str

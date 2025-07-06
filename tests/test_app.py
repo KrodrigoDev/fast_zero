@@ -68,6 +68,27 @@ def test_update_user(client):
 def test_delete_peoples(client):
     ids = pd.read_csv(PathFiles.DATABASE.value, sep=';')['id'].to_list()
 
-    response = client.delete(f'/delete_user/{randint(min(ids), max(ids))}')
+    id = ids[randint(0, len(ids))]
+    response = client.delete(f'/delete_user/{id}')
 
     assert response.status_code == HTTPStatus.OK
+
+
+def test_error_update_user(client):
+    response = client.put(
+        '/update_users/190',
+        json={
+            'first_name': 'string teste',
+            'last_name': 'string teste',
+            'birthday': '2025-06-09',
+            'password': 'string',
+        },
+    )
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_error_delete_user(client):
+    response = client.delete('/delete_user/190')
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
