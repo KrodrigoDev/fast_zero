@@ -1,9 +1,7 @@
+from datetime import datetime
 from http import HTTPStatus
-from random import randint
 
-import pandas as pd
-
-from fast_zero.globais import PathFiles
+from fast_zero.schema import UserPublic
 
 
 def test_main(client):
@@ -23,41 +21,57 @@ def test_main(client):
     assert response.status_code == HTTPStatus.OK
 
 
-def test_created_user(client):
-    response = client.post(
-        '/created_user/',
-        json={
-            'first_name': 'string',
-            'last_name': 'string',
-            'birthday': '2025-06-08',
-            'password': 'string',
-        },
-    )
+def test_create_user(client):
+    user = {
+        'first_name': 'string',
+        'last_name': 'string',
+        'birthday': '2003-07-25',
+        'email': 'user@example.com',
+        'password': 'batatinha123',
+    }
+
+    response = client.post('/created_user', json=user)
 
     assert response.status_code == HTTPStatus.CREATED
-    assert response.json()['id'] > 0
+    assert response.json()['email'] == 'user@example.com'
 
 
-def test_read_people(client):
-    response = client.get('/user/0')
+def test_read_peoples(client, user):
+    response = client.get('/list_users')
+
+    assert len(response.json()['users']) >= 1
+
+
+def test_people_is_people(client, user):
+    user_schema = UserPublic.model_validate(user).model_dump()
+    response = client.get('/list_users')
+
+    data = response.json()
+
+    for raw_user in data['users']:
+        raw_user['birthday'] = datetime.strptime(
+            raw_user['birthday'], '%Y-%m-%d'
+        ).date()
+
+    assert response.status_code == HTTPStatus.OK
+    assert data == {'users': [user_schema]}
+
+
+def test_read_people(client, user):
+    response = client.get('/user/1')
 
     assert response.status_code == HTTPStatus.OK
     assert type(response.json()['first_name']) is str
 
 
-def test_read_peoples(client):
-    response = client.get('/list_users')
-
-    assert len(response.json()['users']) >= 0
-
-
-def test_update_user(client):
+def test_update_user(client, user):
     response = client.put(
         '/update_users/1',
         json={
             'first_name': 'string teste',
             'last_name': 'string teste',
-            'birthday': '2025-06-09',
+            # 'birthday': '2025-06-09',  # dar um jeito de atualizar a idade
+            'email': 'saddssada@gmail.com',
             'password': 'string',
         },
     )
@@ -65,11 +79,8 @@ def test_update_user(client):
     assert response.status_code == HTTPStatus.OK
 
 
-def test_delete_peoples(client):
-    ids = pd.read_csv(PathFiles.DATABASE.value, sep=';')['id'].to_list()
-
-    id = ids[randint(0, len(ids))]
-    response = client.delete(f'/delete_user/{id}')
+def test_delete_peoples(client, user):
+    response = client.delete('/delete_user/1')
 
     assert response.status_code == HTTPStatus.OK
 
@@ -81,6 +92,7 @@ def test_error_update_user(client):
             'first_name': 'string teste',
             'last_name': 'string teste',
             'birthday': '2025-06-09',
+            'email': 'saddssada@gmail.com',
             'password': 'string',
         },
     )
@@ -89,6 +101,6 @@ def test_error_update_user(client):
 
 
 def test_error_delete_user(client):
-    response = client.delete('/delete_user/190')
+    response = client.delete('/delete_user/1')
 
     assert response.status_code == HTTPStatus.NOT_FOUND

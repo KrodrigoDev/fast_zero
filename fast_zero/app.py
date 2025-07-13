@@ -1,27 +1,17 @@
 from http import HTTPStatus
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from fast_zero.globais import PathFiles
-from fast_zero.schema import Books, ListUsers, UserPrivate, UserPublic
+from fast_zero.database import get_session
+from fast_zero.models import User
+from fast_zero.schema import Books, ListUsers, Message, UserPrivate, UserPublic
 
 # testar a questão de segurança ao excluir e adicionar depois
-
-
-def read_data() -> pd.DataFrame:
-    if PathFiles.DATABASE.value.exists():
-        return pd.read_csv(PathFiles.DATABASE.value, sep=';')
-
-    PathFiles.DATABASE.value.touch()
-
-    df = pd.DataFrame(
-        columns=['id', 'first_name', 'last_name', 'birthday', 'password']
-    )
-    df.to_csv(PathFiles.DATABASE.value, index=False, sep=';')
-
-    return df
 
 
 app = FastAPI(title='MY API BULLET!')
@@ -35,34 +25,42 @@ def main():
 @app.post(
     '/created_user', status_code=HTTPStatus.CREATED, response_model=UserPublic
 )
-def created_people(user: UserPrivate):
-    df = read_data()
+def created_people(user: UserPrivate, session: Session = Depends(get_session)):
+    db_user = session.scalar(select(User).where(User.email == user.email))
 
-    df_size = df.shape[0]
-    user = user.model_dump()
-    user['id'] = df_size
+    if db_user:
+        raise HTTPException(
+            status_code=HTTPStatus.CONFLICT,
+            detail=f'this email {user.email} exits in database',
+        )
 
-    df.loc[df_size] = user
+    db_user = User(**user.model_dump(), age=(2025 - int(user.birthday.year)))
 
-    df.to_csv(PathFiles.DATABASE.value, index=False, sep=';')
+    session.add(db_user)
+    session.commit()
 
-    return df.loc[df_size]
+    # para os parametros que são inicializados dentro do banco
+    session.refresh(db_user)
+
+    return db_user
 
 
 @app.get(
     '/user/{user_id}', response_model=UserPublic, status_code=HTTPStatus.OK
 )
-def read_people(user_id: int):
-    df = read_data()
+def read_people(user_id: int, session: Session = Depends(get_session)):
+    db_user = session.scalar(select(User).where(User.id == user_id))
 
-    return df.loc[user_id]
+    return db_user
 
 
 @app.get('/list_users', status_code=HTTPStatus.OK, response_model=ListUsers)
-def read_peoples():
-    df = read_data()
+def read_peoples(
+    session=Depends(get_session), limit: int = 10, offset: int = 0
+):
+    users = session.scalars(select(User).limit(limit).offset(offset))
 
-    return {'users': df.to_dict(orient='records')}
+    return {'users': users}
 
 
 @app.put(
@@ -70,40 +68,44 @@ def read_peoples():
     status_code=HTTPStatus.OK,
     response_model=UserPublic,
 )
-def update_user(user_id: int, user: UserPrivate):
-    df = read_data()
+def update_user(
+    user_id: int, user: UserPrivate, session: Session = Depends(get_session)
+):
+    user_db = session.scalar(select(User).where(User.id == user_id))
 
-    if user_id not in df['id'].unique():
+    if not user_db:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND, detail='Deu ruim! Não achei...'
         )
 
-    user = user.model_dump()
-    user['id'] = df.loc[user_id]['id']
-    df.loc[user_id] = user
+    try:
+        user_db.email = user.email
+        user_db.first_name = user.first_name
+        user_db.password = user.password
 
-    df.to_csv(PathFiles.DATABASE.value, sep=';', index=False)
-    return df.loc[user_id]
+        session.add(user_db)
+        session.commit()
+        session.refresh(user_db)
+        return user_db
+    except IntegrityError:
+        raise HTTPException(
+            status_code=HTTPStatus.CONFLICT, detail='Email already exists'
+        )
 
 
 @app.delete(
-    '/delete_user/{user_id}',
-    status_code=HTTPStatus.OK,
-    response_model=UserPublic,
+    '/delete_user/{user_id}', status_code=HTTPStatus.OK, response_model=Message
 )
-def delete_user(user_id: int):
-    df = read_data()
-
-    if user_id not in df['id'].unique():
+def delete_user(user_id: int, session: Session = Depends(get_session)):
+    user_db = session.scalar(select(User).where(User.id == user_id))
+    if not user_db:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND, detail='Deu ruim! Não achei...'
         )
 
-    new_df = df.drop(index=user_id).copy()
-
-    new_df.to_csv(PathFiles.DATABASE.value, sep=';', index=False)
-
-    return df.loc[user_id]
+    session.delete(user_db)
+    session.commit()
+    return {'message': 'user delete with sucess'}
 
 
 @app.get('/all_books/{year_of_lauch}', response_model=Books)

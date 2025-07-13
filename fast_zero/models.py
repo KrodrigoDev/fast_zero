@@ -21,7 +21,9 @@ class User:
     password: Mapped[str] = mapped_column(String(70), nullable=False)
     birthday: Mapped[date] = mapped_column(nullable=False)
     email: Mapped[str] = mapped_column(String(70), unique=True)
+    # fazer isso funcionar depois usando hooks
     age: Mapped[int] = mapped_column(nullable=True)
+    # é mesmo necessário passar esses dois default?
     vip: Mapped[bool] = mapped_column(
         Boolean, server_default=text('0'), default=0
     )
